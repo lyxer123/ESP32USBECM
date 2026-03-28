@@ -1,0 +1,170 @@
+dependencies:
+  cmd_system:
+    dependencies: []
+    source:
+      path: C:\esp\v5.5.3\esp-idf\examples\system\console\advanced\components\cmd_system
+      type: local
+    version: '*'
+  esp-qa/ping-cmd:
+    component_hash: fe97de564088c2152234a27135e04b1db0b6a1f2075a684369f4a1f537502005
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.0
+  espressif/cmake_utilities:
+    component_hash: 05165f30922b422b4b90c08845e6d449329b97370fbd06309803d8cb539d79e3
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.1.1
+  espressif/iot_eth:
+    dependencies:
+    - name: idf
+      version: '>=4.4'
+    - name: espressif/cmake_utilities
+      version: '*'
+    source:
+      path: F:\github\esp-iot-solution\components\iot_eth
+      type: local
+    version: 1.0.0
+  espressif/iot_usbh_cdc:
+    dependencies:
+    - name: idf
+      version: '>=5.1'
+    - name: espressif/cmake_utilities
+      version: '*'
+    source:
+      path: F:\github\esp-iot-solution\components\usb\iot_usbh_cdc
+      type: local
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    version: 3.0.0
+  espressif/iperf:
+    component_hash: f4c2beaae50478a626995130d2611c628b7a568cd0799022758c05658928410c
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.3'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.1.4
+  espressif/iperf-cmd:
+    component_hash: 1bb639fa395a34c72a1dacf53342c798c4c7d56731b370c5efc75063e831bf32
+    dependencies:
+    - name: espressif/iperf
+      registry_url: https://components.espressif.com
+      require: private
+      version: =0.1.4
+    - name: idf
+      require: private
+      version: '>=4.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.1.4
+  espressif/jsmn:
+    component_hash: d80350c41bbaa827c98a25b6072df00884e72f54885996fab4a4f0aebce6b6c3
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.3'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.1.0
+  espressif/json_parser:
+    component_hash: d74b81729ad06ec11ff5eb5b1b0d7df1d00e6027fc11471f4b139c70dcf1b1e4
+    dependencies:
+    - name: espressif/jsmn
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: idf_version >=5.0
+      version: ~1.1
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.3
+  idf:
+    source:
+      type: idf
+    version: 5.5.3
+  iot_usbh_ecm:
+    dependencies:
+    - name: idf
+      version: '>=5.2'
+    - name: espressif/iot_usbh_cdc
+      override_path: ../iot_usbh_cdc
+      public: true
+      version: ^3.0
+    - name: espressif/iot_eth
+      override_path: ../../iot_eth
+      public: true
+      version: '*'
+    - name: espressif/cmake_utilities
+      version: '*'
+    source:
+      path: F:\github\esp-iot-solution\components\usb\iot_usbh_ecm
+      type: local
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    version: 0.2.1
+  modem_at:
+    dependencies:
+    - name: idf
+      version: '>=4.4'
+    - name: espressif/cmake_utilities
+      version: '*'
+    source:
+      path: F:\github\esp-iot-solution\components\modem_at
+      type: local
+    version: 0.1.0
+  network_test:
+    dependencies: []
+    source:
+      path: F:\github\esp-iot-solution\examples\common_components\network_test
+      type: local
+    version: 1.0.0
+  web_wifi:
+    dependencies:
+    - name: idf
+      version: '>=4.4.1'
+    - name: espressif/json_parser
+      version: 1.0.3
+    - name: espressif/esp_wifi_remote
+      rules:
+      - if: target in [esp32p4, esp32h2]
+      version: '>=0.10,<2.0'
+    - name: espressif/esp_hosted
+      rules:
+      - if: target in [esp32p4, esp32h2]
+      version: ~2
+    source:
+      path: F:\github\esp-iot-solution\examples\common_components\web_wifi
+      type: local
+    version: 1.0.0
+direct_dependencies:
+- cmd_system
+- esp-qa/ping-cmd
+- espressif/iot_eth
+- espressif/iperf-cmd
+- iot_usbh_ecm
+- modem_at
+- network_test
+- web_wifi
+manifest_hash: 0c4832e7a871f35adc7b9386795bfaf18e7732bc2ee9dec44edf8ecdee20725a
+target: esp32s3
+version: 2.0.0
