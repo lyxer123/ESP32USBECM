@@ -49,6 +49,28 @@ dependencies:
     - esp32s3
     - esp32p4
     version: 3.0.0
+  espressif/iot_usbh_ecm:
+    dependencies:
+    - name: idf
+      version: '>=5.2'
+    - name: espressif/iot_usbh_cdc
+      override_path: ../iot_usbh_cdc
+      public: true
+      version: ^3.0
+    - name: espressif/iot_eth
+      override_path: ../../iot_eth
+      public: true
+      version: '*'
+    - name: espressif/cmake_utilities
+      version: '*'
+    source:
+      path: F:\github\esp-iot-solution\components\usb\iot_usbh_ecm
+      type: local
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    version: 0.2.1
   espressif/iperf:
     component_hash: f4c2beaae50478a626995130d2611c628b7a568cd0799022758c05658928410c
     dependencies:
@@ -96,33 +118,7 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.0.3
-  idf:
-    source:
-      type: idf
-    version: 5.5.3
-  iot_usbh_ecm:
-    dependencies:
-    - name: idf
-      version: '>=5.2'
-    - name: espressif/iot_usbh_cdc
-      override_path: ../iot_usbh_cdc
-      public: true
-      version: ^3.0
-    - name: espressif/iot_eth
-      override_path: ../../iot_eth
-      public: true
-      version: '*'
-    - name: espressif/cmake_utilities
-      version: '*'
-    source:
-      path: F:\github\esp-iot-solution\components\usb\iot_usbh_ecm
-      type: local
-    targets:
-    - esp32s2
-    - esp32s3
-    - esp32p4
-    version: 0.2.1
-  modem_at:
+  espressif/modem_at:
     dependencies:
     - name: idf
       version: '>=4.4'
@@ -132,6 +128,10 @@ dependencies:
       path: F:\github\esp-iot-solution\components\modem_at
       type: local
     version: 0.1.0
+  idf:
+    source:
+      type: idf
+    version: 5.5.3
   network_test:
     dependencies: []
     source:
@@ -160,11 +160,11 @@ direct_dependencies:
 - cmd_system
 - esp-qa/ping-cmd
 - espressif/iot_eth
+- espressif/iot_usbh_ecm
 - espressif/iperf-cmd
-- iot_usbh_ecm
-- modem_at
+- espressif/modem_at
 - network_test
 - web_wifi
-manifest_hash: 0c4832e7a871f35adc7b9386795bfaf18e7732bc2ee9dec44edf8ecdee20725a
+manifest_hash: d5d465b86824c7602a15a74111b0e6346f211ff30f7460e073385787b6c4bd48
 target: esp32s3
 version: 2.0.0

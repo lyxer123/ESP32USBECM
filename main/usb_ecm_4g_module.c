@@ -4,6 +4,7 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 #include <stdio.h>
+#include <string.h>
 #include <sys/socket.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,7 +13,10 @@
 #include "esp_check.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "dhcpserver/dhcpserver.h"
 #include "dhcpserver/dhcpserver_options.h"
+#include "lwip/ip_addr.h"
+#include "lwip/lwip_napt.h"
 #include "esp_http_client.h"
 #include "esp_console.h"
 #include "esp_sleep.h"
@@ -38,6 +42,7 @@ static modem_wifi_config_t s_modem_wifi_config = MODEM_WIFI_DEFAULT_CONFIG();
 
 #define EVENT_GOT_IP_BIT (BIT0)
 #define EVENT_AT_READY_BIT (BIT1)
+#define EVENT_ECM_LINK_UP_BIT (BIT2)
 
 #if CONFIG_EXAMPLE_ENABLE_AT_CMD
 typedef struct {
@@ -246,6 +251,9 @@ static void iot_event_handle(void *arg, esp_event_base_t event_base, int32_t eve
             break;
         case IOT_ETH_EVENT_CONNECTED:
             ESP_LOGI(TAG, "IOT_ETH_EVENT_CONNECTED");
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+            xEventGroupSetBits(s_event_group, EVENT_ECM_LINK_UP_BIT);
+#endif
 #if CONFIG_EXAMPLE_ENABLE_AT_CMD
             if (at_init() == ESP_OK) {
                 xEventGroupSetBits(s_event_group, EVENT_AT_READY_BIT);
@@ -254,9 +262,14 @@ static void iot_event_handle(void *arg, esp_event_base_t event_base, int32_t eve
             break;
         case IOT_ETH_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "IOT_ETH_EVENT_DISCONNECTED");
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+            xEventGroupClearBits(s_event_group, EVENT_ECM_LINK_UP_BIT);
+#endif
+#if CONFIG_EXAMPLE_TOPO_ECM_ROUTER_WIFI_AP
             xEventGroupClearBits(s_event_group, EVENT_GOT_IP_BIT);
 #ifndef CONFIG_EXAMPLE_USB_ECM_IPERF
             stop_ping_timer();
+#endif
 #endif
             break;
         default:
@@ -264,13 +277,54 @@ static void iot_event_handle(void *arg, esp_event_base_t event_base, int32_t eve
             break;
         }
     } else if (event_base == IP_EVENT) {
-        ESP_LOGI(TAG, "GOT_IP");
+#if CONFIG_EXAMPLE_TOPO_ECM_ROUTER_WIFI_AP
+        ESP_LOGI(TAG, "ECM GOT_IP");
+#else
+        esp_netif_set_default_netif(app_wifi_get_sta_netif());
+        ESP_LOGI(TAG, "WiFi STA GOT_IP");
+#endif
         xEventGroupSetBits(s_event_group, EVENT_GOT_IP_BIT);
 #ifndef CONFIG_EXAMPLE_USB_ECM_IPERF
         start_ping_timer();
 #endif
     }
 }
+
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+static void ecm_start_dhcps_and_napt(esp_netif_t *sta_netif)
+{
+    if ((esp_netif_get_flags(s_ecm_netif) & ESP_NETIF_DHCP_SERVER) == 0) {
+        ESP_LOGE(TAG, "ecm_start_dhcps_and_napt: ECM netif missing DHCP_SERVER (flags=0x%x)", (unsigned)esp_netif_get_flags(s_ecm_netif));
+        abort();
+    }
+
+    esp_netif_dns_info_t dns_sta;
+    memset(&dns_sta, 0, sizeof(dns_sta));
+    if (sta_netif) {
+        esp_netif_get_dns_info(sta_netif, ESP_NETIF_DNS_MAIN, &dns_sta);
+    }
+
+    esp_err_t err = esp_netif_dhcps_stop(s_ecm_netif);
+    if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+        ESP_ERROR_CHECK(err);
+    }
+    dhcps_offer_t dhcps_dns = OFFER_DNS;
+    ESP_ERROR_CHECK(esp_netif_dhcps_option(s_ecm_netif, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &dhcps_dns, sizeof(dhcps_dns)));
+    if (sta_netif && dns_sta.ip.type == IPADDR_TYPE_V4 && dns_sta.ip.u_addr.ip4.addr != 0) {
+        ESP_ERROR_CHECK(esp_netif_set_dns_info(s_ecm_netif, ESP_NETIF_DNS_MAIN, &dns_sta));
+    } else {
+        esp_netif_dns_info_t dns8888 = { .ip = { .type = IPADDR_TYPE_V4 } };
+        dns8888.ip.u_addr.ip4.addr = ipaddr_addr("8.8.8.8");
+        ESP_ERROR_CHECK(esp_netif_set_dns_info(s_ecm_netif, ESP_NETIF_DNS_MAIN, &dns8888));
+    }
+    ESP_ERROR_CHECK(esp_netif_dhcps_start(s_ecm_netif));
+
+    esp_netif_ip_info_t ecm_ip;
+    ESP_ERROR_CHECK(esp_netif_get_ip_info(s_ecm_netif, &ecm_ip));
+    ip_napt_enable(ecm_ip.ip.addr, 1);
+    ESP_LOGI(TAG, "ECM downstream: DHCPS + NAPT on " IPSTR, IP2STR(&ecm_ip.ip));
+}
+#endif
 
 #if CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
 
@@ -372,6 +426,16 @@ static void install_ecm(uint16_t idVendor, uint16_t idProduct, const char *netif
     esp_netif_inherent_config_t _inherent_eth_config = ESP_NETIF_INHERENT_DEFAULT_ETH();
     _inherent_eth_config.if_key = netif_name;
     _inherent_eth_config.if_desc = netif_name;
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+    /* esp_netif_new() allocates dhcps only if ESP_NETIF_DHCP_SERVER is set (see esp_netif_lwip.c).
+     * Start from default ETH flags, drop DHCP_CLIENT, add DHCP_SERVER|AUTOUP — same as SoftAP pattern. */
+    {
+        esp_netif_flags_t f = _inherent_eth_config.flags;
+        f &= ~(esp_netif_flags_t)ESP_NETIF_DHCP_CLIENT;
+        f |= (esp_netif_flags_t)(ESP_NETIF_IPV4_ONLY_FLAGS(ESP_NETIF_DHCP_SERVER) | ESP_NETIF_FLAG_AUTOUP);
+        _inherent_eth_config.flags = f;
+    }
+#endif
     esp_netif_config_t netif_cfg = {
         .base = &_inherent_eth_config,
         .driver = NULL,
@@ -382,6 +446,17 @@ static void install_ecm(uint16_t idVendor, uint16_t idProduct, const char *netif
         ESP_LOGE(TAG, "Failed to create network interface");
         return;
     }
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+    {
+        esp_netif_flags_t got = esp_netif_get_flags(s_ecm_netif);
+        ESP_LOGI(TAG, "ECM netif flags=0x%x (DHCP_SERVER=%d)", (unsigned)got,
+                 (got & ESP_NETIF_DHCP_SERVER) ? 1 : 0);
+        if ((got & ESP_NETIF_DHCP_SERVER) == 0) {
+            ESP_LOGE(TAG, "ECM netif has no DHCP_SERVER flag; dhcps handle was not created. idf.py fullclean && rebuild.");
+            abort();
+        }
+    }
+#endif
 
     glue = iot_eth_new_netif_glue(eth_handle);
     if (glue == NULL) {
@@ -389,6 +464,21 @@ static void install_ecm(uint16_t idVendor, uint16_t idProduct, const char *netif
         return;
     }
     esp_netif_attach(s_ecm_netif, glue);
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+    {
+        /* esp_netif_set_ip_info() requires dhcps_status == STOPPED for DHCP_SERVER netifs; initial state is INIT. */
+        esp_err_t derr = esp_netif_dhcps_stop(s_ecm_netif);
+        if (derr != ESP_OK && derr != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+            ESP_ERROR_CHECK(derr);
+        }
+        esp_netif_ip_info_t ip_info;
+        memset(&ip_info, 0, sizeof(ip_info));
+        ip_info.ip.addr = ipaddr_addr(CONFIG_EXAMPLE_ECM_DOWNSTREAM_GATEWAY_IP);
+        ip_info.gw.addr = ip_info.ip.addr;
+        ip_info.netmask.addr = ipaddr_addr(CONFIG_EXAMPLE_ECM_DOWNSTREAM_NETMASK);
+        ESP_ERROR_CHECK(esp_netif_set_ip_info(s_ecm_netif, &ip_info));
+    }
+#endif
     iot_eth_start(eth_handle);
 }
 
@@ -408,7 +498,11 @@ void app_main(void)
     s_event_group = xEventGroupCreate();
     ESP_RETURN_VOID_ON_FALSE(s_event_group != NULL, TAG, "Failed to create event group");
     esp_event_handler_register(IOT_ETH_EVENT, ESP_EVENT_ANY_ID, iot_event_handle, NULL);
+#if CONFIG_EXAMPLE_TOPO_ECM_ROUTER_WIFI_AP
     esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, iot_event_handle, NULL);
+#else
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, iot_event_handle, NULL);
+#endif
 
 #if CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
     BaseType_t task_created = xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4096, xTaskGetCurrentTaskHandle(), 5, NULL, 0);
@@ -437,9 +531,13 @@ void app_main(void)
     module_power_init();
 #endif
     install_ecm(USB_DEVICE_VENDOR_ANY, USB_DEVICE_PRODUCT_ANY, "USB ECM0");
-    xEventGroupWaitBits(s_event_group, EVENT_GOT_IP_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
 
-#if CONFIG_EXAMPLE_USB_ECM_IPERF
+#if CONFIG_EXAMPLE_TOPO_ECM_ROUTER_WIFI_AP
+    xEventGroupWaitBits(s_event_group, EVENT_GOT_IP_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+#endif
+
+#if CONFIG_EXAMPLE_USB_ECM_IPERF && CONFIG_EXAMPLE_TOPO_ECM_ROUTER_WIFI_AP
+    /* Forward topo: ECM already has IP; iperf on ECM only, no Wi‑Fi stack. */
     iperf_init();
     vTaskSuspend(NULL);
 #endif
@@ -448,8 +546,26 @@ void app_main(void)
     modem_http_get_nvs_wifi_config(&s_modem_wifi_config);
     modem_http_init(&s_modem_wifi_config);
 #endif
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+    s_modem_wifi_config.mode = WIFI_MODE_STA;
+#endif
     app_wifi_main(&s_modem_wifi_config);
+
+#if CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+    xEventGroupWaitBits(s_event_group, EVENT_GOT_IP_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+    ESP_LOGI(TAG, "Waiting for USB ECM link up before DHCPS (reverse topo)...");
+    xEventGroupWaitBits(s_event_group, EVENT_ECM_LINK_UP_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+    ecm_start_dhcps_and_napt(app_wifi_get_sta_netif());
+    esp_netif_set_default_netif(app_wifi_get_sta_netif());
+#else
     esp_netif_set_default_netif(s_ecm_netif);
+#endif
+
+#if CONFIG_EXAMPLE_USB_ECM_IPERF && CONFIG_EXAMPLE_TOPO_WIFI_STA_ECM_PC
+    /* Reverse topo needs STA + ECM DHCPS + NAPT before handing over to iperf console. */
+    iperf_init();
+    vTaskSuspend(NULL);
+#endif
 
 #ifdef CONFIG_EXAMPLE_USB_ECM_LIGHT_SLEEP_TEST
     TimerHandle_t sleep_timer = xTimerCreate("sleep_timer", pdMS_TO_TICKS(20000), pdTRUE, NULL, sleep_timer_cb);

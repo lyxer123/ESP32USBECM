@@ -1,5 +1,33 @@
 menu "Example Configuration"
 
+    choice EXAMPLE_NETWORK_TOPOLOGY
+        prompt "USB ECM network topology"
+        default EXAMPLE_TOPO_ECM_ROUTER_WIFI_AP
+        help
+            Choose data path. Original: upstream DHCP on USB ECM (router/PC), share via Wi‑Fi AP + NAPT.
+            Reverse: join Wi‑Fi as STA, give the PC on CH397 RJ45 a private subnet via DHCP + NAPT to Wi‑Fi.
+
+        config EXAMPLE_TOPO_ECM_ROUTER_WIFI_AP
+            bool "Router/PC — [CH397 ECM] — ESP32 — Wi‑Fi AP (NAT to ECM)"
+
+        config EXAMPLE_TOPO_WIFI_STA_ECM_PC
+            bool "Wi‑Fi STA — ESP32 — [CH397 ECM] — PC Ethernet (NAT to Wi‑Fi)"
+            select LWIP_IP_FORWARD
+            select LWIP_IPV4_NAPT
+    endchoice
+
+    config EXAMPLE_ECM_DOWNSTREAM_GATEWAY_IP
+        string "ECM LAN IP (gateway for PC on RJ45)"
+        depends on EXAMPLE_TOPO_WIFI_STA_ECM_PC
+        default "192.168.137.1"
+        help
+            Static IPv4 on the USB ECM interface toward the PC. PC uses DHCP from the ESP; this address is the PC default gateway.
+
+    config EXAMPLE_ECM_DOWNSTREAM_NETMASK
+        string "ECM LAN netmask"
+        depends on EXAMPLE_TOPO_WIFI_STA_ECM_PC
+        default "255.255.255.0"
+
     config ESP_IDF_VERSION
        string
        option env="ESP_IDF_VERSION"

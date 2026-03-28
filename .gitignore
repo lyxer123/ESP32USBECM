@@ -1,0 +1,8 @@
+# Local build output (ESP-IDF)
+build/
+
+# Tool / editor caches
+.cache/
+
+# VS Code / Cursor workspace settings (machine-local)
+.vscode/
